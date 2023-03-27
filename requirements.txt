@@ -1,6 +1,8 @@
+opencv-python==4.7.0.72
+fastapi==0.95.0
+uvicorn==0.20.0
+deepface==0.0.79
+python-multipart==0.0.6
 tensorflow
-opencv-python
-fastapi
-uvicorn 
-deepface
-s
+celery==5.2.7
+python-dotenv==1.0.0
