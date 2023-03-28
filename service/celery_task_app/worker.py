@@ -8,10 +8,10 @@ BROKER_URI = os.environ['BROKER_URI']
 BACKEND_URI = os.environ['BACKEND_URI']
 
 app = Celery(
-    'celery_app',
+    'celery_app_face_strightness_detection',
     broker=BROKER_URI,
     backend=BACKEND_URI,
-    include=['celery_task_app.tasks'],
+    include=['service.celery_task_app.tasks'],
     worker_max_tasks_per_child = 2,
     worker_prefetch_multiplier = 1, 
     task_time_limit = 100, 

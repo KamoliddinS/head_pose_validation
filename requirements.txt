@@ -6,3 +6,4 @@ python-multipart==0.0.6
 tensorflow
 celery==5.2.7
 python-dotenv==1.0.0
+redis==4.5.3

@@ -1,48 +1,59 @@
-from typing import Union
 from fastapi import FastAPI
-from pydantic import BaseModel
-from deepface import DeepFace
 from fastapi import File, UploadFile
-import numpy as np
 from PIL import Image, ImageDraw
 from io import BytesIO
-from service.mark_detector import MarkDetector
-from service.pose_estimator import PoseEstimator
+import numpy as np
 from fastapi.responses import Response
-
-import cv2
-
-app = FastAPI()
-
-# model = DeepFace.build_model("DeepFace")
-
-
-def read_imagefile(data) -> Image.Image:
-    image = Image.open(BytesIO(data))
-    return image
-
-
-# free gpu memory
+from service.head_pose_analysis import analyze_nose_angle_draw_bounding_box
+from fastapi.openapi.utils import get_openapi
+from starlette.responses import RedirectResponse, JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.api_key import APIKeyQuery, APIKeyCookie, APIKeyHeader, APIKey
+from service.utils import get_api_key, get_admin_api_key
+from celery import Celery, Task
+from service.celery_task_app.tasks import  analyze_face_emotions_and_straightness
+from service.schemas import Face_url
+from typing import Optional, List
+import datetime
 import tensorflow as tf
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
-tf.keras.backend.clear_session()
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+origins = ["*"]
+methods = ["*"]
+headers = ["*"]
 
-app.get("/")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=methods,
+    allow_headers=headers
+)
 
 
-def read_root():
-    return {"Hello": "World"}
+@app.get("/")
+async def homepage():
+    return "Welcome to the DeepFace API."
 
 
-# @app.post("/predict")
-# async def estimate_emotion(image: UploadFile = File(...)):
-#     try:
-#         image = read_imagefile(await image.read())
-#     except:
-#         return {"error": "image not found"}
-#     image = np.array(image)[:, :, ::-1].copy()
-#     return DeepFace.analyze(image, actions=['emotion'])
-#
+@app.get("/openapi.json", tags=["documentation"])
+async def get_open_api_endpoint():
+    response = JSONResponse(
+        get_openapi(title="Face authentication and search API for kindergarten kids in Uzbekistan",
+                    description="This Application is optimized for searching faces, and For precise searches Please Search faces with raidus option enabled",
+                    version=1, routes=app.routes)
+    )
+    return response
+
+
+@app.get("/docs", tags=["documentation"])
+async def get_documentation():
+    response = get_swagger_ui_html(openapi_url="/openapi.json", title="docs")
+    return response
+
+
 def get_image_buffer(image: Image.Image, format: str = "PNG") -> bytes:
     buffered = BytesIO()
     image.save(buffered, format=format)
@@ -50,43 +61,26 @@ def get_image_buffer(image: Image.Image, format: str = "PNG") -> bytes:
     return img_bytes
 
 
-@app.post("/predict2")
+@app.post("/analyze_face_emotions_and_straightness_test", tags=["face_emotions_and_straightness"])
 async def draw_bonding_box(file: UploadFile = File(...)):
     # get image high and width
-    image = Image.open(BytesIO(await file.read()))
-    image_array = np.array(image)
-    image_array = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
-    height = image_array.shape[0]
-    width = image_array.shape[1]
-    pose_estimator = PoseEstimator(img_size=(height, width))
-    mark_detector = MarkDetector()
-    face_box = mark_detector.extract_cnn_facebox(image_array)
-    x1, y1, x2, y2 = face_box
-    # draw = ImageDraw.Draw(image)
-    # draw = draw.rectangle(face_box, outline="red")
-    #
-    #
-    # image_bytes = get_image_buffer(image)
-    face_img= image_array[y1:y2, x1:x2]
-
-    marks = mark_detector.detect_marks(face_img)
-
-    marks *= (x2 - x1)
-    marks[:, 0] += x1
-    marks[:, 1] += y1
-
-
-
-
-    pose =pose_estimator.solve_pose_by_68_points(marks)
-
-    pose_estimator.draw_annotation_box(image_array, pose[0], pose[1], color=(255, 128, 128))
-
-    def test_face_if_it_is_straight(pose):
-        return pose[0][0] > 0.1 or pose[0][0] < -0.1
-    # print(test_face_is_between_acceptable_range(pose))
-
-    #pose_estimator.draw_axes(image_array, pose[0], pose[1])
+    image_array = np.array(Image.open(BytesIO(await file.read())))
+    image_array, emotion = analyze_nose_angle_draw_bounding_box(image_array)
     image = Image.fromarray(image_array)
     image_bytes = get_image_buffer(image)
     return Response(content=image_bytes, media_type="image/png")
+
+
+@app.post("/analyze_face_emotions_and_straightness", tags=["face_emotions_and_straightness"])
+async def draw_bonding_box(face_url: Face_url):
+    # get image high and width
+    task = analyze_face_emotions_and_straightness.delay(face_url.face_url)
+    return {"task_id": task.id}
+
+@app.get("/analyze_face_emotions_and_straightness/{task_id}", tags=["face_emotions_and_straightness"])
+async def get_task_result(task_id: str):
+    task = analyze_face_emotions_and_straightness.AsyncResult(task_id)
+    if task.state == 'SUCCESS':
+        return task.result
+    else:
+        return {'state': task.state}

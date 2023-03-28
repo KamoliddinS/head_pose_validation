@@ -15,7 +15,7 @@ docker run -d --name redis-stack-server -p 6379:6379 redis/redis-stack-server:la
 ### RabbitMQ on port 5672
 #### RabbitMQ
 ```bash
-docker run -d --hostname my-rabbit --name rabbitmq-local -p 5672:5672 -p 15672:15627 rabbitmq:3-management
+docker run -d --hostname my-rabbit --name rabbitmq-local -p 5672:5672 -p 15672:15672 rabbitmq:3-management
 ```
 
 
